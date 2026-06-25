@@ -56,9 +56,9 @@ _gwx_switch() {
     fi
   else
     local -a paths branches
-    while IFS=$'\t' read -r path branch; do
-      paths+=("$path")
-      if [[ "$path" == "$current" ]]; then
+    while IFS=$'\t' read -r wt_path branch; do
+      paths+=("$wt_path")
+      if [[ "$wt_path" == "$current" ]]; then
         branches+=("$branch (current)")
       else
         branches+=("$branch")
@@ -100,12 +100,12 @@ _gwx_prune() {
   fi
 
   local -a to_prune_paths to_prune_branches
-  while IFS=$'\t' read -r path branch; do
+  while IFS=$'\t' read -r wt_path branch; do
     if [[ "$branch" == "$target_branch" ]]; then
       continue
     fi
     if git merge-base --is-ancestor "$branch" "$target_branch" 2>/dev/null; then
-      to_prune_paths+=("$path")
+      to_prune_paths+=("$wt_path")
       to_prune_branches+=("$branch")
     fi
   done < <(git worktree list --porcelain | awk '
