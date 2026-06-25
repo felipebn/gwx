@@ -16,7 +16,7 @@ Examples:
   gwx prune
   gwx -p --force
   gwx prune --keep-branch
-  gwx prune develep   # use a different target branch than main
+  gwx prune develop   # use a different target branch than main
 EOF
 }
 
