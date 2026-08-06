@@ -82,6 +82,15 @@ gwx prune --keep-branch        # keep the git branch after removing worktree
 gwx prune develop              # remove worktrees merged into develop
 ```
 
+### update (`-u`)
+
+Pull the latest version of gwx and reload the plugin without restarting your shell.
+
+```bash
+gwx update
+gwx -u
+```
+
 ## License
 
 MIT

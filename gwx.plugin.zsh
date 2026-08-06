@@ -1,3 +1,4 @@
+_GWX_PLUGIN_FILE="${(%):-%x}"
 _gwx_usage() {
   cat <<'EOF' >&2
 Usage: gwx <command> [options]
@@ -6,6 +7,7 @@ Commands:
   switch, -s    Interactively switch between worktrees
   create, -c    Create a worktree for a branch and cd into it
   prune,  -p    Remove worktrees whose branches are fully merged into main
+  update, -u    Update gwx to the latest version
 
 Create options:
   -b, --branch <name>          Base for a NEW branch (default: current HEAD)
@@ -209,6 +211,25 @@ _gwx_prune() {
   return $errors
 }
 
+_gwx_update() {
+  local plugin_dir="${_GWX_PLUGIN_FILE:A:h}"
+
+  if ! git -C "$plugin_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    echo "gwx: '$plugin_dir' is not a git repository, cannot self-update" >&2
+    return 1
+  fi
+
+  echo "gwx: pulling latest version in '$plugin_dir'..."
+  if ! git -C "$plugin_dir" pull --ff-only 2>&1; then
+    echo "gwx: update failed" >&2
+    return 1
+  fi
+
+  echo "gwx: reloading plugin..."
+  source "$_GWX_PLUGIN_FILE"
+  echo "gwx: update complete"
+}
+
 gwx() {
   if [[ $# -eq 0 ]]; then
     _gwx_switch
@@ -222,6 +243,7 @@ gwx() {
     switch|-s)          _gwx_switch "$@" ;;
     create|-c)          _gwx_create "$@" ;;
     prune|-p)           _gwx_prune "$@" ;;
+    update|-u)          _gwx_update "$@" ;;
     -h|--help|help)     _gwx_usage ;;
     *)                  echo "gwx: unknown command '$cmd'" >&2; _gwx_usage; return 1 ;;
   esac
