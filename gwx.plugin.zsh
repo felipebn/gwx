@@ -4,15 +4,24 @@ Usage: gwx <command> [options]
 
 Commands:
   switch, -s    Interactively switch between worktrees
+  create, -c    Create a worktree for a branch and cd into it
   prune,  -p    Remove worktrees whose branches are fully merged into main
 
+Create options:
+  -b, --branch <name>          Base for a NEW branch (default: current HEAD)
+  --name <name>                Override the worktree directory name (default: branch name)
+  --worktree-parent <dir>      Parent directory for the worktree (default: sibling of repo root)
+
 Prune options:
-  --force, -f         Skip confirmation prompt
-  --keep-branch, -k   Keep the local branch after removing the worktree
+  -f, --force          Skip confirmation prompt
+  -k, --keep-branch    Keep the local branch after removing the worktree
 
 Examples:
   gwx switch
   gwx -s
+  gwx create feat/foo
+  gwx create fix/x --branch main
+  gwx create feat/foo --name hotfix --worktree-parent ~/worktrees
   gwx prune
   gwx -p --force
   gwx prune --keep-branch
@@ -74,6 +83,58 @@ _gwx_switch() {
         echo "Invalid selection" >&2
       fi
     done
+  fi
+}
+
+_gwx_create() {
+  if ! git rev-parse --git-dir >/dev/null 2>&1; then
+    echo "gwx: not in a git repository" >&2
+    return 1
+  fi
+
+  local branch_name start_point name worktree_parent
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --branch|-b) start_point="$2"; shift 2 ;;
+      --name) name="$2"; shift 2 ;;
+      --worktree-parent) worktree_parent="$2"; shift 2 ;;
+      -*) echo "gwx: unknown create option: $1" >&2; _gwx_usage; return 1 ;;
+      *) [[ -n "$branch_name" ]] && { echo "gwx: too many arguments" >&2; _gwx_usage; return 1; }
+         branch_name="$1"; shift ;;
+    esac
+  done
+
+  if [[ -z "$branch_name" ]]; then
+    echo "gwx: create requires a branch name" >&2
+    _gwx_usage
+    return 1
+  fi
+
+  local repo_root dir_name wt_path
+  repo_root=$(git rev-parse --show-toplevel)
+  [[ -z "$worktree_parent" ]] && worktree_parent=$(dirname "$repo_root")
+  dir_name=${name:-$branch_name}
+  wt_path="$worktree_parent/$dir_name"
+
+  if [[ -e "$wt_path" ]]; then
+    echo "gwx: path '$wt_path' already exists" >&2
+    return 1
+  fi
+
+  local args
+  if git rev-parse --verify "$branch_name" >/dev/null 2>&1; then
+    args=(add "$wt_path" "$branch_name")
+  else
+    args=(add -b "$branch_name" "$wt_path")
+    [[ -n "$start_point" ]] && args+=("$start_point")
+  fi
+
+  if git worktree "${args[@]}"; then
+    echo "Created worktree: $wt_path"
+    cd "$wt_path" || return 1
+  else
+    return 1
   fi
 }
 
@@ -159,6 +220,7 @@ gwx() {
 
   case "$cmd" in
     switch|-s)          _gwx_switch "$@" ;;
+    create|-c)          _gwx_create "$@" ;;
     prune|-p)           _gwx_prune "$@" ;;
     -h|--help|help)     _gwx_usage ;;
     *)                  echo "gwx: unknown command '$cmd'" >&2; _gwx_usage; return 1 ;;

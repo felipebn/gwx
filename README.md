@@ -1,6 +1,6 @@
 # gwx — Git Worktree Extension
 
-A zsh plugin to switch between and prune git worktrees.
+A zsh plugin to switch between, create, and prune git worktrees.
 
 ## Install
 
@@ -56,6 +56,19 @@ Interactively pick a worktree and `cd` into it.
 gwx           # same as gwx switch
 gwx switch
 gwx -s
+```
+
+### create (`-c`)
+
+Create a worktree for a branch and `cd` into it. If the branch does not exist, it is created from the current HEAD (or the branch given with `--branch`).
+
+The worktree is created in the sibling directory `<repo-parent>/<branch-name>`. Use `--name` to override the directory name and `--worktree-parent` to choose a different parent.
+
+```bash
+gwx create feat/foo               # checkout or create branch feat/foo, worktree in ../feat/foo
+gwx create fix/x --branch main    # create branch fix/x from main
+gwx create feat/foo --name hotfix # worktree in ../hotfix, branch feat/foo
+gwx create feat/foo --worktree-parent ~/worktrees
 ```
 
 ### prune (`-p`)
