@@ -17,6 +17,7 @@ Create options:
 Prune options:
   -f, --force          Skip confirmation prompt
   -k, --keep-branch    Keep the local branch after removing the worktree
+      --force-remove   Force-remove worktrees with uncommitted/untracked files
 
 Examples:
   gwx switch
@@ -27,6 +28,7 @@ Examples:
   gwx prune
   gwx -p --force
   gwx prune --keep-branch
+  gwx prune --force-remove
   gwx prune develop   # use a different target branch than main
 EOF
 }
@@ -146,25 +148,37 @@ _gwx_prune() {
     return 1
   fi
 
-  local force=false keep_branch=false target_branch="main"
+  local force=false keep_branch=false force_remove=false target_branch="main"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --force|-f) force=true; shift ;;
       --keep-branch|-k) keep_branch=true; shift ;;
+      --force-remove) force_remove=true; shift ;;
       -*) echo "gwx: unknown prune option: $1" >&2; _gwx_usage; return 1 ;;
       *) target_branch="$1"; shift ;;
     esac
   done
 
-  if ! git rev-parse --verify "$target_branch" >/dev/null 2>&1; then
-    echo "gwx: target branch '$target_branch' not found" >&2
+  if ! git rev-parse --verify --quiet "refs/heads/$target_branch" >/dev/null 2>&1; then
+    echo "gwx: '$target_branch' is not a local branch (prune compares against a local branch, e.g. main)" >&2
     return 1
   fi
 
-  local -a to_prune_paths to_prune_branches
+  local current
+  current=$(git worktree list --porcelain | awk '/^worktree/{p=$2} /^HEAD/{print p; exit}')
+
+  local -a to_prune_paths to_prune_branches skipped_detached skipped_current
   while IFS=$'\t' read -r wt_path branch; do
+    if [[ -z "$branch" ]]; then
+      skipped_detached+=("$wt_path")
+      continue
+    fi
     if [[ "$branch" == "$target_branch" ]]; then
+      continue
+    fi
+    if [[ "$wt_path" == "$current" || "$PWD" == "$wt_path" || "$PWD" == "$wt_path"/* ]]; then
+      skipped_current+=("$wt_path")
       continue
     fi
     if git merge-base --is-ancestor "$branch" "$target_branch" 2>/dev/null; then
@@ -172,9 +186,19 @@ _gwx_prune() {
       to_prune_branches+=("$branch")
     fi
   done < <(git worktree list --porcelain | awk '
-    /^worktree/ {p=$2}
+    /^worktree/ {p=$2; b=""}
     /^branch/   {b=$2; sub("refs/heads/","",b); print p "\t" b}
+    /^detached/ {print p "\t"}
+    /^bare/     {print p "\t"}
   ')
+
+  local p
+  for p in "${skipped_detached[@]}"; do
+    echo "skipped (detached HEAD): $p"
+  done
+  for p in "${skipped_current[@]}"; do
+    echo "skipped (current worktree): $p"
+  done
 
   if [[ ${#to_prune_paths[@]} -eq 0 ]]; then
     echo "gwx: no worktrees merged into '$target_branch'"
@@ -193,22 +217,47 @@ _gwx_prune() {
     [[ "$confirm" != "y" && "$confirm" != "Y" && "$confirm" != "yes" ]] && return 0
   fi
 
-  local errors=0
+  local removed=0 deleted=0 kept=0 errors=0
+  local err args
   for ((i=1; i<=${#to_prune_paths[@]}; i++)); do
-    if git worktree remove "${to_prune_paths[$i]}" 2>/dev/null; then
-      echo "Removed worktree: ${to_prune_paths[$i]}"
+    local wt="${to_prune_paths[$i]}" br="${to_prune_branches[$i]}"
+    args=()
+    $force_remove && args+=(--force)
+    if err=$(git worktree remove "$wt" "${args[@]}" 2>&1); then
+      echo "Removed worktree: $wt"
+      ((removed+=1))
       if ! $keep_branch; then
-        if git branch -d "${to_prune_branches[$i]}" 2>/dev/null; then
-          echo "  -> pruned branch: ${to_prune_branches[$i]}"
+        if git merge-base --is-ancestor "$br" "$target_branch" 2>/dev/null; then
+          if git worktree list --porcelain | grep -q "^branch refs/heads/$br\$"; then
+            echo "  -> kept branch '$br': still checked out in another worktree"
+            ((kept+=1))
+          elif err=$(git branch -d "$br" 2>&1); then
+            echo "  -> pruned branch: $br"
+            ((deleted+=1))
+          else
+            echo "  -> kept branch '$br': $err"
+            ((kept+=1))
+          fi
+        else
+          echo "  -> kept branch '$br': not fully merged into '$target_branch' (recreate worktree: git worktree add $wt $br)"
+          ((kept+=1))
         fi
       fi
     else
-      echo "gwx: failed to remove ${to_prune_paths[$i]}" >&2
-      ((errors++))
+      echo "gwx: failed to remove $wt" >&2
+      echo "  $err" >&2
+      if [[ "$err" == *"modified or untracked"* ]]; then
+        echo "  hint: uncommitted or untracked files; inspect with: git -C $wt status --short" >&2
+        echo "  hint: to discard them, use: gwx prune --force-remove" >&2
+      elif [[ "$err" == *"locked"* ]]; then
+        echo "  hint: unlock with: git worktree unlock $wt" >&2
+      fi
+      ((errors+=1))
     fi
   done
 
-  return $errors
+  echo "Summary: removed $removed worktree(s), pruned $deleted branch(es), kept $kept branch(es), $errors failure(s)."
+  return $(( errors ? 1 : 0 ))
 }
 
 _gwx_update() {
